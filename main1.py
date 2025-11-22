@@ -8,6 +8,8 @@ from qiskit_aer.noise import NoiseModel
 from qiskit_aer.noise.errors import depolarizing_error
 from qiskit_aer.noise import NoiseModel
 import sympy
+from qiskit.circuit.library import CDKMRippleCarryAdder
+from qiskit.circuit.library import PhaseOracle
 
 N_QUBITS = 0
 
@@ -42,39 +44,54 @@ def create_oracle():
 
     return oracle_gate
 
+def comparator_equals_7(qc, qubits_in, flag):
+    qc.x(qubits_in[3]) # Invertimos el BMS
+    qc.mcx(qubits_in, flag) # el flag se pone en 1 si los 4 bits = 1
+    qc.x(qubits_in[3]) # Deshacemos el X del inicio (restauramos el estado original)
+
+def comparator_equals_10(qc, sum_bits, flag):
+    pattern = '01010'
+    
+    # invertimos los bits que son 0
+    for i, bit in enumerate(reversed(pattern)):
+        if bit == '0':
+            qc.x(sum_bits[i])
+    
+    # aplicamos multi-controlled X (solo se activa si todos los bits = 1)
+    qc.mcx(sum_bits, flag)
+    
+    # deshacemos las X
+    for i, bit in enumerate(reversed(pattern)):
+        if bit == '0':
+            qc.x(sum_bits[i])
+
 def create_oracle_atenea():
     global N_QUBITS
-    N_QUBITS = 10
-    qc = QuantumCircuit(N_QUBITS, name="Oráculo")
+    N_QUBITS = 25
+    qc = QuantumCircuit(N_QUBITS, name="OráculoCuántico")
 
-    # Encontramos los números válidos (100–999)
-    valid_numbers = [
-        n for n in range(100, 1000)
-        if sympy.isprime(n) and sum(map(int, str(n))) == 10 and str(n).endswith("7")
-    ]
+    centenas = [0,1,2,3]
+    decenas  = [4,5,6,7]
+    unidades = [8,9,10,11]
+    flag7 = 12
+    flagSum10 = 13
+    flagPrime = 14
+    phase = 15
 
-    print(f"Números válidos: {valid_numbers}")
+    # Condición 1: termina en 7
+    comparator_equals_7(qc, unidades, flag7)
 
-    # Por cada número válido, marcamos ese estado
-    for num in valid_numbers:
-        bits = format(num, f'0{N_QUBITS}b')
-        
-        # Aplicamos X a los bits que sean '0' (para convertirlo temporalmente en |11...1>)
-        for i, bit in enumerate(reversed(bits)):
-            if bit == '0':
-                qc.x(i)
-        
-        # Aplicamos una Z multi-controlada
-        qc.h(N_QUBITS-1)
-        qc.mcx(list(range(N_QUBITS-1)), N_QUBITS-1)
-        qc.h(N_QUBITS-1)
-        
-        # Deshacemos las X
-        for i, bit in enumerate(reversed(bits)):
-            if bit == '0':
-                qc.x(i)
+    # Condición 2: suma de dígitos = 10
+    qc.append(CDKMRippleCarryAdder(4).to_gate(), centenas + decenas + [16,17])
+    qc.append(CDKMRippleCarryAdder(5).to_gate(), [16,17,18,19,20] + unidades + [21,22,23])
+    comparator_equals_10(qc,[16,17,18,19,20], flagSum10)
 
-    return qc.to_gate(label="Oráculo")
+
+    qc.h(phase)
+    qc.mcx([flag7, flagSum10], phase)
+    qc.h(phase)
+
+    return qc
 
 def create_diffuser():
     qc = QuantumCircuit(N_QUBITS)
