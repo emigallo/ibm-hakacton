@@ -1,4 +1,3 @@
-  GNU nano 8.4                                                            GAA.py                                                                     
 # gaa.py
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
