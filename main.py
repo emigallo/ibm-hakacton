@@ -55,6 +55,37 @@ def create_diffuser(n):
    
     return qc_diffuser
 
+def get_iterations(target_statte_digits, target_decimal, oracle_gate, diff_gate):
+    sim = AerSimulator()
+    best_iter = 1
+    best_prob = 0.0
+    best_state = None
+    
+    for k in range(1, 12):
+        qc = QuantumCircuit(target_statte_digits, target_statte_digits)
+        qc.h(range(target_statte_digits))
+        
+        for _ in range(k):
+            qc.append(oracle_gate, range(target_statte_digits))
+            qc.append(diff_gate, range(target_statte_digits))
+        
+        qc.measure(range(target_statte_digits), range(target_statte_digits))
+
+        tqc = transpile(qc, sim)
+        result = sim.run(tqc, shots=1024).result()
+        counts = result.get_counts()
+        
+        most = max(counts, key=counts.get)
+        prob = counts[most] / 1024
+
+        # si este resultado tiene mayor probabilidad del target
+        if int(most, 2) == target_decimal and prob > best_prob:
+            best_iter = k
+            best_prob = prob
+            best_state = most
+
+    return best_iter
+
 def run_grover():
     oracle_gate = create_oracle().to_gate(label="Oracle")
     diff_gate   = create_diffuser(target_statte_digits).to_gate(label="Diffuser")
@@ -65,8 +96,9 @@ def run_grover():
     grover_circuit.h(range(target_statte_digits))
 
     # Paso 2: cantidad óptima de iteraciones
-    N = 2**target_statte_digits
-    iterations = int(np.floor(np.pi/4 * np.sqrt(N)))
+    # N = 2**target_statte_digits
+    # iterations = int(np.floor(np.pi/4 * np.sqrt(N)))
+    iterations = get_iterations(target_statte_digits, target_state_decimal, oracle_gate, diff_gate)
     print(f"Iteraciones de Grover: {iterations}")
 
     # Paso 3: aplicar Grover varias veces
