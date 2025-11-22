@@ -5,37 +5,50 @@ import matplotlib.pyplot as plt
 import numpy as np
 from math import floor, pi
 
+# --- Funciones (Reutilizadas del ejemplo anterior) ---
+def create_oracle():
+    n = 7
+    target_state_decimal = 85
+    target_state_binary = format(target_state_decimal, f'0{n}b')
 
-# --- Parámetros del Algoritmo de Grover ---
-n = 7  # Número de qubits (representa el espacio de contraseñas 2^7 = 128)
-# Elegimos una contraseña "objetivo" de 7 bits para marcar (ej: 0b1010101 -> 85)
-# El oráculo marcará este estado.
-target_state_decimal = 85
-target_state_binary = format(target_state_decimal, f'0{n}b')
+    """Crea un oráculo que aplica una fase de -1 al estado objetivo."""
+    qc_oracle = QuantumCircuit(n)
+   
+    # Aplicar X a los qubits que son '0' en el estado objetivo.
+    # El estado 73 es '1001001'. Qubits 1, 2, 4, 5 son '0'.
+    for i, bit in enumerate(target_state_binary):
+        if bit == '0':
+            qc_oracle.x(i)
 
-# Número óptimo de iteraciones de Grover:
-# R = floor((pi / 4) * sqrt(N)) donde N = 2^n
-N = 2**n
-R = floor((pi / 4) * np.sqrt(N))
-print(f"Espacio de búsqueda (N): {N} estados")
-print(f"Contraseña objetivo (binario): {target_state_binary}")
-print(f"Número de iteraciones de Grover (R): {R}")
+    # Aplicar la compuerta Z controlada por todos los qubits (MCZ)
+    control_qubits = list(range(n))
+    qc_oracle.h(n-1)
+    qc_oracle.mcx(control_qubits[:-1], n-1)
+    qc_oracle.h(n-1)
+
+    # Deshacer la aplicación de X.
+    for i, bit in enumerate(target_state_binary):
+        if bit == '0':
+            qc_oracle.x(i)
+
+    return qc_oracle
+
+def create_grover_diffuser(n):
+    """Crea el operador de difusión de Grover (inversión alrededor de la media)."""
+    qc_diffuser = QuantumCircuit(n)
+   
+    qc_diffuser.h(range(n))
+    qc_diffuser.x(range(n))
+   
+    # Aplicar MCZ para el estado |11...1>
+    qc_diffuser.h(n-1)
+    qc_diffuser.mcx(list(range(n-1)), n-1)
+    qc_diffuser.h(n-1)
+   
+    qc_diffuser.x(range(n))
+    qc_diffuser.h(range(n))
+   
+    return qc_diffuser
 
 
-# Creamos el circuito
-qc = QuantumCircuit(3, 3)
-qc.h(0)
-qc.cx(0, 1)
-qc.cx(1, 2)
-qc.measure([0, 1, 2], [0, 1, 2])
-
-# Ejecutamos en el simulador
-sim = AerSimulator()
-result = sim.run(qc, shots=1024).result()
-counts = result.get_counts()
-
-# Mostramos resultados
-print(counts)
-qc.draw('mpl')
-plot_histogram(counts)
-plt.show()
+print(create_oracle())
