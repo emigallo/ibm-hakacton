@@ -7,13 +7,15 @@ import os
 from qiskit_aer.noise import NoiseModel
 from qiskit_aer.noise.errors import depolarizing_error
 from qiskit_aer.noise import NoiseModel
+import sympy
 
-TARGET_DECIMAL = 127
-N_QUBITS = 7
-
-TARGET_PASSWORD = format(TARGET_DECIMAL, f'0{N_QUBITS}b')
+N_QUBITS = 0
 
 def create_oracle():
+    global N_QUBITS
+    N_QUBITS = 8
+    TARGET_DECIMAL = 255
+    TARGET_PASSWORD = format(TARGET_DECIMAL, f'0{N_QUBITS}b')    
     num_qubits = len(TARGET_PASSWORD)
     qc = QuantumCircuit(num_qubits)
     
@@ -40,30 +42,62 @@ def create_oracle():
 
     return oracle_gate
 
-def create_diffuser(num_qubits):
-    qc = QuantumCircuit(num_qubits)
+def create_oracle_atenea():
+    global N_QUBITS
+    N_QUBITS = 10
+    qc = QuantumCircuit(N_QUBITS, name="Oráculo")
+
+    # Encontramos los números válidos (100–999)
+    valid_numbers = [
+        n for n in range(100, 1000)
+        if sympy.isprime(n) and sum(map(int, str(n))) == 10 and str(n).endswith("7")
+    ]
+
+    print(f"Números válidos: {valid_numbers}")
+
+    # Por cada número válido, marcamos ese estado
+    for num in valid_numbers:
+        bits = format(num, f'0{N_QUBITS}b')
+        
+        # Aplicamos X a los bits que sean '0' (para convertirlo temporalmente en |11...1>)
+        for i, bit in enumerate(reversed(bits)):
+            if bit == '0':
+                qc.x(i)
+        
+        # Aplicamos una Z multi-controlada
+        qc.h(N_QUBITS-1)
+        qc.mcx(list(range(N_QUBITS-1)), N_QUBITS-1)
+        qc.h(N_QUBITS-1)
+        
+        # Deshacemos las X
+        for i, bit in enumerate(reversed(bits)):
+            if bit == '0':
+                qc.x(i)
+
+    return qc.to_gate(label="Oráculo")
+
+def create_diffuser():
+    qc = QuantumCircuit(N_QUBITS)
     
-    qc.h(range(num_qubits))
-    qc.x(range(num_qubits))
+    qc.h(range(N_QUBITS))
+    qc.x(range(N_QUBITS))
     
-    qc.h(num_qubits-1)
-    qc.mcx(list(range(num_qubits-1)), num_qubits-1)
-    qc.h(num_qubits-1)
+    qc.h(N_QUBITS-1)
+    qc.mcx(list(range(N_QUBITS-1)), N_QUBITS-1)
+    qc.h(N_QUBITS-1)
     
-    qc.x(range(num_qubits))
-    qc.h(range(num_qubits))
+    qc.x(range(N_QUBITS))
+    qc.h(range(N_QUBITS))
     
     diffuser_gate = qc.to_gate()
     diffuser_gate.name = "Difusor"
     return diffuser_gate
 
-def run_grover(addNoise):
+def run_grover(addNoise, oracle, diffuser):
     grover_circuit = QuantumCircuit(N_QUBITS, N_QUBITS)
     grover_circuit.h(range(N_QUBITS))
 
     num_iterations = int(np.floor(np.pi/4 * np.sqrt(2**N_QUBITS)))
-    oracle = create_oracle()
-    diffuser = create_diffuser(N_QUBITS)
     print(f"Se realizarán {num_iterations} iteraciones.")
 
     for _ in range(num_iterations):
@@ -97,4 +131,4 @@ def run_grover(addNoise):
     plot_histogram(counts)
     plt.show()
 
-run_grover(True)
+run_grover(False, create_oracle_atenea(), create_diffuser())
