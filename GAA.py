@@ -1,55 +1,116 @@
-# gaa.py
+ GAA.py
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
+from qiskit.visualization import plot_histogram
 import numpy as np
-from math import pi, asin
+import matplotlib.pyplot as plt
+from math import pi, floor, asin
 
-# Parámetros
-n = 4 # 4 qubits
-target_decimal = 10 # 1010
-target_subspace = ['1010'] # Soluciones marcadas por el oráculo
+# ======================================================================
+# 1. PARÁMETROS GLOBALES
+# ======================================================================
+n = 4 # 4 qubits (N = 16 estados)
+target_decimal = 10 
+target_state_binary = format(target_decimal, f'0{n}b') # Target: 1010
+target_subspace = [target_state_binary]
+
+N = 2**n
+# Calculamos las iteraciones óptimas para Grover/GAA con superposición uniforme
+R = floor((pi / 4) * np.sqrt(N)) 
+
+print(f"Espacio de búsqueda (N): {N} estados")
+print(f"Contraseña objetivo (binario): {target_state_binary}")
+print(f"Iteraciones óptimas (R): {R}")
+
+# ======================================================================
+# 2. FUNCIONES: ORÁCULO DE OBJETIVO (O_G) y REFLEXIÓN INICIAL (O_chi)
+# ======================================================================
 
 def get_target_oracle(n, target_subspace):
-    # Implementación de un oráculo que aplica fase a los estados en target_subspace
-    # Para el ejemplo, usaremos el oráculo de Grover para el estado |1010>
+    """Oráculo de Fase (O_G): Marca el estado objetivo |target> con una fase de -1."""
     qc = QuantumCircuit(n)
-    qc.x([1, 3]) # Flip 0s to 1s: |1010> -> |1111>
+    
+    # Target: 1010. Qubits 1 y 3 son '0', necesitan X. (Asumiendo orden q0q1q2q3)
+    qc.x([1, 3]) 
+    
+    # Apply MCZ (implementado como H + MCX + H)
+    control_qubits = list(range(n))
     qc.h(n-1)
-    qc.mcx(list(range(n-1)), n-1)
+    qc.mcx(control_qubits[:-1], n-1)
     qc.h(n-1)
+    
+    # Deshacer las X
     qc.x([1, 3])
     return qc
 
 def get_initial_reflection_oracle(n):
-    # En GAA, este es el operador de reflexión sobre el estado inicial |chi>.
-    # Para simplicidad, si usamos la superposición uniforme, es el difusor de Grover.
-    qc = QuantumCircuit(n)
-    qc.h(range(n))
-    qc.x(range(n))
-    qc.h(n-1)
-    qc.mcx(list(range(n-1)), n-1)
-    qc.h(n-1)
-    qc.x(range(n))
-    qc.h(range(n))
-    return qc
+    """
+    Oráculo de Reflexión (O_chi): Refleja sobre el estado inicial |chi>.
+    Para la inicialización con Hadamard, |chi> = |s>, y O_chi es el Difusor de Grover.
+    """
+    qc_diffuser = QuantumCircuit(n)
+    
+    qc_diffuser.h(range(n))
+    qc_diffuser.x(range(n))
+    
+    # Apply MCZ for the state |11...1>
+    qc_diffuser.h(n-1)
+    qc_diffuser.mcx(list(range(n-1)), n-1)
+    qc_diffuser.h(n-1)
+    
+    qc_diffuser.x(range(n))
+    qc_diffuser.h(range(n))
+    
+    return qc_diffuser
+
+# ======================================================================
+#  3. CONSTRUCCIÓN Y EJECUCIÓN DEL ALGORITMO
+# ======================================================================
 
 def gaa_circuit(n, target_subspace, iterations):
+    """Construye el circuito GAA (Q = - O_chi * O_G)"""
     qc = QuantumCircuit(n, n)
-    # Inicialización con H (para obtener |s>, un caso de |chi>)
+    
+    # Inicialización: Estado inicial |chi> = |s>
     qc.h(range(n))
-
-    oracle_G = get_target_oracle(n, target_subspace)
-    oracle_chi = get_initial_reflection_oracle(n)
-
+    
+    # Obtener los operadores como instrucciones (CORRECCIÓN CLAVE)
+    oracle_G_inst = get_target_oracle(n, target_subspace).to_instruction()
+    oracle_chi_inst = get_initial_reflection_oracle(n).to_instruction()
+    
+    # Iteraciones GAA
     for _ in range(iterations):
-        qc.append(oracle_G, range(n))
-        qc.append(oracle_chi, range(n))
+        # Aplicar el Oráculo Objetivo (O_G)
+        qc.append(oracle_G_inst, range(n))
+        # Aplicar el Operador de Reflexión Inicial (O_chi)
+        qc.append(oracle_chi_inst, range(n))
 
     qc.measure(range(n), range(n))
     return qc
 
-# Supongamos que la amplitud de la solución es a = 1/sqrt(N)
-# Si tuviéramos un estado inicial arbitrario, la elección de R sería más compleja.
-R = 2 # Número de iteraciones (GAA suele requerir menos si el estado inicial es bueno)
+# --- Ejecución ---
 circuit = gaa_circuit(n, target_subspace, R)
-# Ejecución similar al ejemplo anterior
+backend = AerSimulator()
+shots = 1024 
+
+t_circuit = transpile(circuit, backend)
+job = backend.run(t_circuit, shots=shots)
+result = job.result()
+counts = result.get_counts()
+
+# --- Análisis de Resultados ---
+measured_key_binary = max(counts, key=counts.get)
+measured_key_decimal = int(measured_key_binary, 2)
+probability_of_target = counts.get(target_state_binary, 0) / shots
+
+print("\n" + "="*40)
+print("Resultados de la Amplificación de Amplitud Generalizada (GAA):")
+print("="*40)
+print(f"Contraseña objetivo (Decimal): **{target_decimal}**")
+print(f"Clave más probable medida (Binario): **{measured_key_binary}**")
+print(f"Clave más probable medida (Decimal): **{measured_key_decimal}**")
+print(f"Probabilidad de éxito: {probability_of_target*100:.2f}%")
+
+plot_histogram(counts, title='Resultados de GAA (Target: 1010)')
+plt.show()
+
